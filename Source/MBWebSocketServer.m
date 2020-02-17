@@ -5,17 +5,18 @@
 #import "MBWebSocketServer.h"
 
 @interface MBWebSocketServer () <GCDAsyncSocketDelegate>
+@property (nonatomic, strong) dispatch_queue_t delegateQueue;
 @end
 
 @interface NSString (MBWebSocketServer)
 - (id)sha1base64;
 @end
 
-static unsigned long long ntohll(unsigned long long v) {
-    union { unsigned long lv[2]; unsigned long long llv; } u;
-    u.llv = v;
-    return ((unsigned long long)ntohl(u.lv[0]) << 32) | (unsigned long long)ntohl(u.lv[1]);
-}
+//static unsigned long long ntohll(unsigned long long v) {
+//    union { unsigned long lv[2]; unsigned long long llv; } u;
+//    u.llv = v;
+//    return ((unsigned long long)ntohl(u.lv[0]) << 32) | (unsigned long long)ntohl(u.lv[1]);
+//}
 
 
 
@@ -25,6 +26,7 @@ static unsigned long long ntohll(unsigned long long v) {
 - (id)initWithPort:(NSUInteger)port delegate:(id<MBWebSocketServerDelegate>)delegate {
     _port = port;
     _delegate = delegate;
+    _delegateQueue = dispatch_queue_create("ma.jieliang.ws", DISPATCH_QUEUE_SERIAL);
     socket = [[GCDAsyncSocket alloc] initWithDelegate:self delegateQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)];
     connections = [NSMutableArray new];
 
@@ -45,7 +47,8 @@ static unsigned long long ntohll(unsigned long long v) {
 
 - (void)send:(id)object {
     id payload = [object webSocketFrameData];
-    for (GCDAsyncSocket *connection in connections)
+//    for (GCDAsyncSocket *connection in connections)
+    GCDAsyncSocket *connection = connections.firstObject;
         [connection writeData:payload withTimeout:-1 tag:3];
 }
 
@@ -138,7 +141,7 @@ static unsigned long long ntohll(unsigned long long v) {
 
                 switch (tag & 0xf) {
                     case 1: {
-                        dispatch_async(dispatch_get_main_queue(), ^{
+                        dispatch_async(self.delegateQueue, ^{
                             [_delegate webSocketServer:self didReceiveData:unmaskedData fromConnection:connection];
                         });
                         break;
@@ -164,27 +167,27 @@ static unsigned long long ntohll(unsigned long long v) {
     }
     @catch (id msg) {
         id err = [NSError errorWithDomain:@"com.methylblue.webSocketServer" code:1 userInfo:@{NSLocalizedDescriptionKey: msg}];
-        dispatch_sync(dispatch_get_main_queue(), ^{
+        dispatch_async(self.delegateQueue, ^{
             [_delegate webSocketServer:self couldNotParseRawData:data fromConnection:connection error:err];
         });
-        [connection disconnect]; //FIXME some cases do not require disconnect
+        [connection disconnect]; //FIXME: some cases do not require disconnect
     }
 }
 
 - (void)socket:(GCDAsyncSocket *)connection didWriteDataWithTag:(long)tag {
     if (tag == 2) {
-        [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+        dispatch_async(self.delegateQueue, ^{
             [_delegate webSocketServer:self didAcceptConnection:connection];
-        }];
+        });
         [connection readDataToLength:2 withTimeout:-1 buffer:nil bufferOffset:0 tag:4];
     }
 }
 
 - (void)socketDidDisconnect:(GCDAsyncSocket *)connection withError:(NSError *)error {
     [connections removeObjectIdenticalTo:connection];
-    [[NSOperationQueue mainQueue] addOperationWithBlock:^{
+    dispatch_async(self.delegateQueue, ^{
         [_delegate webSocketServer:self clientDisconnected:connection];
-    }];
+    });
 }
 
 @end

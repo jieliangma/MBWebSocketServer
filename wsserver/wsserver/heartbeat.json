@@ -1,0 +1,8 @@
+{
+    "msgType": "heartbeat",
+    "msgBody": {
+        "channelId": "直播间ID",
+        "status":  0,
+        "sign": "基于用户ID的签名"
+    }
+}
